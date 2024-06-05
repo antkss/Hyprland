@@ -1,46 +1,15 @@
-name: Release artifacts
+name: CI
 
-on:
-  release:
-    types: [published]
-  workflow_dispatch:
+on: [push]
 
 jobs:
-  source-tarball:
-    runs-on: ubuntu-latest
+  build:
+    runs-on: ubuntu-18.04
     steps:
-      - name: Checkout Hyprland
-        id: checkout
-        uses: actions/checkout@v3
-        with:
-          submodules: recursive
-
-      - name: Generate version
-        id: genversion
-        run: |
-          git fetch --unshallow || echo "failed unshallowing"
-          bash -c scripts/generateVersion.sh
-          mv scripts/generateVersion.sh scripts/generateVersion.sh.bak
-
-      - name: Create tarball with submodules
-        id: tar
-        run: |
-          mkdir hyprland-source; mv ./* ./hyprland-source || tar -czv --owner=0 --group=0 --no-same-owner --no-same-permissions -f source.tar.gz *
-
-      - id: whatrelease
-        name: Get latest release
-        uses: pozetroninc/github-action-get-latest-release@master
-        with:
-          owner: hyprwm
-          repo: Hyprland
-          excludes: prerelease, draft
-
-      - name: Upload to release
-        id: upload
-        uses: svenstaro/upload-release-action@v2
-        with:
-          repo_token: ${{ secrets.GITHUB_TOKEN }}
-          file: source.tar.gz
-          asset_name: source-${{ steps.whatrelease.outputs.release }}.tar.gz
-          tag: ${{ steps.whatrelease.outputs.release }}
-          overwrite: true
+    - uses: actions/checkout@v1
+    - name: Install Archlinux
+      run: curl -L https://github.com/zaoqi/github-actions-archlinux/raw/master/install.sh | sh
+    - name: Docker hello-world
+      run: |
+        sudo pacman --noconfirm -Syu docker
+        
