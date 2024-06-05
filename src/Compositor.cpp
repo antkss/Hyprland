@@ -879,7 +879,6 @@ CMonitor* CCompositor::getRealMonitorFromOutput(wlr_output* out) {
 }
 
 void CCompositor::focusWindow(PHLWINDOW pWindow, wlr_surface* pSurface) {
-    return;
 
     static auto PFOLLOWMOUSE        = CConfigValue<Hyprlang::INT>("input:follow_mouse");
     static auto PSPECIALFALLTHROUGH = CConfigValue<Hyprlang::INT>("input:special_fallthrough");
@@ -1029,7 +1028,7 @@ void CCompositor::focusSurface(wlr_surface* pSurface, PHLWINDOW pWindowOwner) {
         g_pXWaylandManager->activateSurface(m_pLastFocus, false);
 
     if (!pSurface) {
-        g_pSeatManager->setKeyboardFocus(nullptr);
+        // g_pSeatManager->setKeyboardFocus(nullptr);
         g_pEventManager->postEvent(SHyprIPCEvent{"activewindow", ","}); // unfocused
         g_pEventManager->postEvent(SHyprIPCEvent{"activewindowv2", ""});
         EMIT_HOOK_EVENT("keyboardFocus", (wlr_surface*)nullptr);
