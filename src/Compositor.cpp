@@ -879,6 +879,7 @@ CMonitor* CCompositor::getRealMonitorFromOutput(wlr_output* out) {
 }
 
 void CCompositor::focusWindow(PHLWINDOW pWindow, wlr_surface* pSurface) {
+    return;
 
     static auto PFOLLOWMOUSE        = CConfigValue<Hyprlang::INT>("input:follow_mouse");
     static auto PSPECIALFALLTHROUGH = CConfigValue<Hyprlang::INT>("input:special_fallthrough");
