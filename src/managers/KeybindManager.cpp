@@ -449,7 +449,6 @@ bool CKeybindManager::onAxisEvent(const IPointer::SAxisEvent& e) {
 }
 
 bool CKeybindManager::onMouseEvent(const IPointer::SButtonEvent& e) {
-    return true;
     const auto MODS = g_pInputManager->accumulateModsFromAllKBs();
 
     bool       suppressEvent = false;
@@ -1800,6 +1799,7 @@ void CKeybindManager::resizeActive(std::string args) {
 }
 
 void CKeybindManager::moveActive(std::string args) {
+    return;
     const auto PLASTWINDOW = g_pCompositor->m_pLastWindow.lock();
 
     if (!PLASTWINDOW || PLASTWINDOW->m_bIsFullscreen)
