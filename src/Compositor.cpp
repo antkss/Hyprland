@@ -1036,8 +1036,8 @@ void CCompositor::focusSurface(wlr_surface* pSurface, PHLWINDOW pWindowOwner) {
         return;
     }
 
-    // if (g_pSeatManager->keyboard)
-    //     g_pSeatManager->setKeyboardFocus(pSurface);
+    if (g_pSeatManager->keyboard)
+        g_pSeatManager->setKeyboardFocus(pSurface);
 
     if (pWindowOwner)
         Debug::log(LOG, "Set keyboard focus to surface {:x}, with {}", (uintptr_t)pSurface, pWindowOwner);

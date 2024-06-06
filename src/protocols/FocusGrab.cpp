@@ -100,6 +100,7 @@ void CFocusGrab::eraseSurface(wlr_surface* surface) {
 }
 
 void CFocusGrab::refocusKeyboard() {
+    return;
     auto keyboardSurface = g_pSeatManager->state.keyboardFocus;
     if (keyboardSurface != nullptr && isSurfaceComitted(keyboardSurface))
         return;
