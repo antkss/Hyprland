@@ -1009,7 +1009,6 @@ void CCompositor::focusWindow(PHLWINDOW pWindow, wlr_surface* pSurface) {
 }
 
 void CCompositor::focusSurface(wlr_surface* pSurface, PHLWINDOW pWindowOwner) {
-    return;
 
     if (g_pSeatManager->state.keyboardFocus == pSurface || (pWindowOwner && g_pSeatManager->state.keyboardFocus == pWindowOwner->m_pWLSurface.wlr()))
         return; // Don't focus when already focused on this.
@@ -1025,17 +1024,17 @@ void CCompositor::focusSurface(wlr_surface* pSurface, PHLWINDOW pWindowOwner) {
     const auto PLASTSURF = m_pLastFocus;
 
     // Unfocus last surface if should
-    if (m_pLastFocus && !pWindowOwner)
-        g_pXWaylandManager->activateSurface(m_pLastFocus, false);
-
-    if (!pSurface) {
-        g_pSeatManager->setKeyboardFocus(nullptr);
-        g_pEventManager->postEvent(SHyprIPCEvent{"activewindow", ","}); // unfocused
-        g_pEventManager->postEvent(SHyprIPCEvent{"activewindowv2", ""});
-        EMIT_HOOK_EVENT("keyboardFocus", (wlr_surface*)nullptr);
-        m_pLastFocus = nullptr;
-        return;
-    }
+    // if (m_pLastFocus && !pWindowOwner)
+    //     g_pXWaylandManager->activateSurface(m_pLastFocus, false);
+    //
+    // if (!pSurface) {
+    //     g_pSeatManager->setKeyboardFocus(nullptr);
+    //     g_pEventManager->postEvent(SHyprIPCEvent{"activewindow", ","}); // unfocused
+    //     g_pEventManager->postEvent(SHyprIPCEvent{"activewindowv2", ""});
+    //     EMIT_HOOK_EVENT("keyboardFocus", (wlr_surface*)nullptr);
+    //     m_pLastFocus = nullptr;
+    //     return;
+    // }
 
     if (g_pSeatManager->keyboard)
         g_pSeatManager->setKeyboardFocus(pSurface);
