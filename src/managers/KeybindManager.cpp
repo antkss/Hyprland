@@ -449,7 +449,7 @@ bool CKeybindManager::onAxisEvent(const IPointer::SAxisEvent& e) {
 }
 
 bool CKeybindManager::onMouseEvent(const IPointer::SButtonEvent& e) {
-    return;
+    return true;
     const auto MODS = g_pInputManager->accumulateModsFromAllKBs();
 
     bool       suppressEvent = false;
