@@ -57,17 +57,17 @@ void CFocusGrab::start() {
     }
 
     // Ensure new surfaces are focused if under the mouse when comitted.
-    g_pInputManager->simulateMouseMovement();
-    refocusKeyboard();
+    // g_pInputManager->simulateMouseMovement();
+    // refocusKeyboard();
 }
 
 void CFocusGrab::finish(bool sendCleared) {
     if (m_bGrabActive) {
         m_bGrabActive = false;
 
-        if (g_pSeatManager->seatGrab == grab) {
-            g_pSeatManager->setGrab(nullptr);
-        }
+        // if (g_pSeatManager->seatGrab == grab) {
+        //     g_pSeatManager->setGrab(nullptr);
+        // }
 
         grab->clear();
         m_mSurfaces.clear();
@@ -100,7 +100,6 @@ void CFocusGrab::eraseSurface(wlr_surface* surface) {
 }
 
 void CFocusGrab::refocusKeyboard() {
-    return;
     auto keyboardSurface = g_pSeatManager->state.keyboardFocus;
     if (keyboardSurface != nullptr && isSurfaceComitted(keyboardSurface))
         return;
