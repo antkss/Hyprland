@@ -1038,25 +1038,25 @@ void CCompositor::focusSurface(wlr_surface* pSurface, PHLWINDOW pWindowOwner) {
 
     // if (g_pSeatManager->keyboard)
     //     g_pSeatManager->setKeyboardFocus(pSurface);
-    //
-    // if (pWindowOwner)
-    //     Debug::log(LOG, "Set keyboard focus to surface {:x}, with {}", (uintptr_t)pSurface, pWindowOwner);
-    // else
-    //     Debug::log(LOG, "Set keyboard focus to surface {:x}", (uintptr_t)pSurface);
-    //
-    // g_pXWaylandManager->activateSurface(pSurface, true);
-    // m_pLastFocus = pSurface;
-    //
-    // EMIT_HOOK_EVENT("keyboardFocus", pSurface);
-    //
-    // const auto SURF    = CWLSurface::surfaceFromWlr(pSurface);
-    // const auto OLDSURF = CWLSurface::surfaceFromWlr(PLASTSURF);
-    //
-    // if (OLDSURF && OLDSURF->constraint())
-    //     OLDSURF->constraint()->deactivate();
-    //
-    // if (SURF && SURF->constraint())
-    //     SURF->constraint()->activate();
+
+    if (pWindowOwner)
+        Debug::log(LOG, "Set keyboard focus to surface {:x}, with {}", (uintptr_t)pSurface, pWindowOwner);
+    else
+        Debug::log(LOG, "Set keyboard focus to surface {:x}", (uintptr_t)pSurface);
+
+    g_pXWaylandManager->activateSurface(pSurface, true);
+    m_pLastFocus = pSurface;
+
+    EMIT_HOOK_EVENT("keyboardFocus", pSurface);
+
+    const auto SURF    = CWLSurface::surfaceFromWlr(pSurface);
+    const auto OLDSURF = CWLSurface::surfaceFromWlr(PLASTSURF);
+
+    if (OLDSURF && OLDSURF->constraint())
+        OLDSURF->constraint()->deactivate();
+
+    if (SURF && SURF->constraint())
+        SURF->constraint()->activate();
 }
 
 wlr_surface* CCompositor::vectorToLayerPopupSurface(const Vector2D& pos, CMonitor* monitor, Vector2D* sCoords, PHLLS* ppLayerSurfaceFound) {
