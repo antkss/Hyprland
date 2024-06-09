@@ -996,7 +996,7 @@ void CCompositor::focusSurface(SP<CWLSurfaceResource> pSurface, PHLWINDOW pWindo
 
     const auto PLASTSURF = m_pLastFocus.lock();
 
-// #Unfocus last surface if should
+// Unfocus last surface if should
     if (m_pLastFocus && !pWindowOwner)
         g_pXWaylandManager->activateSurface(m_pLastFocus.lock(), false);
 
