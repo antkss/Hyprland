@@ -25,37 +25,38 @@ void CWLTouchResource::sendDown(SP<CWLSurfaceResource> surface, uint32_t timeMs,
     if (!owner)
         return;
 
-    if (currentSurface) {
-        LOGM(WARN, "requested CWLTouchResource::sendDown without sendUp first.");
-        sendUp(timeMs, id);
-    }
-
     ASSERT(surface->client() == owner->client());
 
     currentSurface           = surface;
     listeners.destroySurface = surface->events.destroy.registerListener([this, timeMs, id](std::any d) { sendUp(timeMs + 10 /* hack */, id); });
 
     resource->sendDown(g_pSeatManager->nextSerial(owner.lock()), timeMs, surface->getResource().get(), id, wl_fixed_from_double(local.x), wl_fixed_from_double(local.y));
+
+    fingers++;
 }
 
 void CWLTouchResource::sendUp(uint32_t timeMs, int32_t id) {
-    if (!owner || !currentSurface)
+    if (!owner)
         return;
 
     resource->sendUp(g_pSeatManager->nextSerial(owner.lock()), timeMs, id);
-    currentSurface.reset();
-    listeners.destroySurface.reset();
+    fingers--;
+    if (fingers <= 0) {
+        currentSurface.reset();
+        listeners.destroySurface.reset();
+        fingers = 0;
+    }
 }
 
 void CWLTouchResource::sendMotion(uint32_t timeMs, int32_t id, const Vector2D& local) {
-    if (!owner || !currentSurface)
+    if (!owner)
         return;
 
     resource->sendMotion(timeMs, id, wl_fixed_from_double(local.x), wl_fixed_from_double(local.y));
 }
 
 void CWLTouchResource::sendFrame() {
-    if (!owner || !currentSurface)
+    if (!owner)
         return;
 
     resource->sendFrame();
@@ -199,10 +200,13 @@ CWLKeyboardResource::CWLKeyboardResource(SP<CWlKeyboard> resource_, SP<CWLSeatRe
     resource->setRelease([this](CWlKeyboard* r) { PROTO::seat->destroyResource(this); });
     resource->setOnDestroy([this](CWlKeyboard* r) { PROTO::seat->destroyResource(this); });
 
-    static auto REPEAT = CConfigValue<Hyprlang::INT>("input:repeat_rate");
-    static auto DELAY  = CConfigValue<Hyprlang::INT>("input:repeat_delay");
+    if (!g_pSeatManager->keyboard) {
+        LOGM(ERR, "No keyboard on bound wl_keyboard??");
+        return;
+    }
+
     sendKeymap(g_pSeatManager->keyboard.lock());
-    repeatInfo(*REPEAT, *DELAY);
+    repeatInfo(g_pSeatManager->keyboard->repeatRate, g_pSeatManager->keyboard->repeatDelay);
 }
 
 bool CWLKeyboardResource::good() {

@@ -38,7 +38,8 @@ commands:
     plugin ...          → Issue a plugin request
     reload [config-only] → Issue a reload to force reload the config. Pass
                           'config-only' to disable monitor reload
-    rollinglog          → Prints tail of the log
+    rollinglog          → Prints tail of the log. Also supports -f/--follow
+                          option
     setcursor <theme> <size> → Sets the cursor theme and reloads the cursor
                           manager
     seterror <color> <message...> → Sets the hyprctl error string. Color has
@@ -60,6 +61,7 @@ flags:
     --batch             → Execute a batch of commands, separated by ';'
     --instance (-i)     → use a specific instance. Can be either signature or
                           index in hyprctl instances (0, 1, etc)
+    --quiet (-q)        → Disable the output of hyprctl
 
 --help:
     Can be used to print command's arguments that did not fit into this page
@@ -111,7 +113,7 @@ create <backend>:
 remove <name>:
     Removes virtual output. Pass the output's name, as found in
     'hyprctl monitors'
-    
+
 flags:
     See 'hyprctl --help')#";
 

@@ -44,22 +44,49 @@
 #include "../protocols/core/Shm.hpp"
 
 #include "../helpers/Monitor.hpp"
+#include "../render/Renderer.hpp"
+
+void CProtocolManager::onMonitorModeChange(CMonitor* pMonitor) {
+    const bool ISMIRROR = pMonitor->isMirror();
+
+    // onModeChanged we check if the current mirror status matches the global.
+    // mirrored outputs should have their global removed, as they are not physical parts of the
+    // layout.
+
+    if (ISMIRROR && PROTO::outputs.contains(pMonitor->szName))
+        PROTO::outputs.at(pMonitor->szName)->remove();
+    else if (!ISMIRROR && (!PROTO::outputs.contains(pMonitor->szName) || PROTO::outputs.at(pMonitor->szName)->isDefunct())) {
+        if (PROTO::outputs.contains(pMonitor->szName))
+            PROTO::outputs.erase(pMonitor->szName);
+        PROTO::outputs.emplace(pMonitor->szName,
+                               std::make_unique<CWLOutputProtocol>(&wl_output_interface, 4, std::format("WLOutput ({})", pMonitor->szName), pMonitor->self.lock()));
+    }
+}
 
 CProtocolManager::CProtocolManager() {
 
     // Outputs are a bit dumb, we have to agree.
-    static auto P = g_pHookSystem->hookDynamic("monitorAdded", [](void* self, SCallbackInfo& info, std::any param) {
+    static auto P = g_pHookSystem->hookDynamic("monitorAdded", [this](void* self, SCallbackInfo& info, std::any param) {
         auto M = std::any_cast<CMonitor*>(param);
+
+        // ignore mirrored outputs. I don't think this will ever be hit as mirrors are applied after
+        // this event is emitted iirc.
+        if (M->isMirror())
+            return;
+
         if (PROTO::outputs.contains(M->szName))
             PROTO::outputs.erase(M->szName);
         PROTO::outputs.emplace(M->szName, std::make_unique<CWLOutputProtocol>(&wl_output_interface, 4, std::format("WLOutput ({})", M->szName), M->self.lock()));
+
+        m_mModeChangeListeners[M->szName] = M->events.modeChanged.registerListener([M, this](std::any d) { onMonitorModeChange(M); });
     });
 
-    static auto P2 = g_pHookSystem->hookDynamic("monitorRemoved", [](void* self, SCallbackInfo& info, std::any param) {
+    static auto P2 = g_pHookSystem->hookDynamic("monitorRemoved", [this](void* self, SCallbackInfo& info, std::any param) {
         auto M = std::any_cast<CMonitor*>(param);
         if (!PROTO::outputs.contains(M->szName))
             return;
         PROTO::outputs.at(M->szName)->remove();
+        m_mModeChangeListeners.erase(M->szName);
     });
 
     // Core
@@ -103,8 +130,12 @@ CProtocolManager::CProtocolManager() {
     PROTO::dataWlr             = std::make_unique<CDataDeviceWLRProtocol>(&zwlr_data_control_manager_v1_interface, 2, "DataDeviceWlr");
     PROTO::primarySelection    = std::make_unique<CPrimarySelectionProtocol>(&zwp_primary_selection_device_manager_v1_interface, 1, "PrimarySelection");
     PROTO::xwaylandShell       = std::make_unique<CXWaylandShellProtocol>(&xwayland_shell_v1_interface, 1, "XWaylandShell");
-    PROTO::mesaDRM             = std::make_unique<CMesaDRMProtocol>(&wl_drm_interface, 2, "MesaDRM");
-    PROTO::linuxDma            = std::make_unique<CLinuxDMABufV1Protocol>(&zwp_linux_dmabuf_v1_interface, 5, "LinuxDMABUF");
+
+    if (g_pHyprOpenGL->getDRMFormats().size() > 0) {
+        PROTO::mesaDRM  = std::make_unique<CMesaDRMProtocol>(&wl_drm_interface, 2, "MesaDRM");
+        PROTO::linuxDma = std::make_unique<CLinuxDMABufV1Protocol>(&zwp_linux_dmabuf_v1_interface, 5, "LinuxDMABUF");
+    } else
+        Debug::log(WARN, "ProtocolManager: Not binding linux-dmabuf and MesaDRM: DMABUF not available");
 
     // Old protocol implementations.
     // TODO: rewrite them to use hyprwayland-scanner.

@@ -1,9 +1,9 @@
-#include <ctype.h>
+#include <cctype>
 #include <netdb.h>
 #include <netinet/in.h>
-#include <stdio.h>
-#include <stdlib.h>
-#include <string.h>
+#include <cstdio>
+#include <cstdlib>
+#include <cstring>
 #include <sys/socket.h>
 #include <sys/stat.h>
 #include <sys/types.h>
@@ -12,7 +12,7 @@
 #include <unistd.h>
 #include <ranges>
 #include <algorithm>
-#include <signal.h>
+#include <csignal>
 #include <format>
 
 #include <iostream>
@@ -22,14 +22,18 @@
 #include <vector>
 #include <deque>
 #include <filesystem>
-#include <stdarg.h>
+#include <cstdarg>
 #include <regex>
+#include <sys/socket.h>
+#include <hyprutils/string/String.hpp>
+using namespace Hyprutils::String;
 
 #include "Strings.hpp"
 
 #define PAD
 
 std::string instanceSignature;
+bool        quiet = false;
 
 struct SInstanceData {
     std::string id;
@@ -38,6 +42,13 @@ struct SInstanceData {
     std::string wlSocket;
     bool        valid = true;
 };
+
+void log(std::string str) {
+    if (quiet)
+        return;
+
+    std::cout << str;
+}
 
 std::string getRuntimeDir() {
     const auto XDG = getenv("XDG_RUNTIME_DIR");
@@ -90,23 +101,63 @@ std::vector<SInstanceData> instances() {
     return result;
 }
 
-int request(std::string arg, int minArgs = 0) {
+static volatile bool sigintReceived = false;
+void                 intHandler(int sig) {
+    sigintReceived = true;
+    std::cout << "[hyprctl] SIGINT received, closing connection" << std::endl;
+}
+
+int rollingRead(const int socket) {
+    sigintReceived = false;
+    signal(SIGINT, intHandler);
+
+    constexpr size_t              BUFFER_SIZE = 8192;
+    std::array<char, BUFFER_SIZE> buffer      = {0};
+    int                           sizeWritten = 0;
+    std::cout << "[hyprctl] reading from socket following up log:" << std::endl;
+    while (!sigintReceived) {
+        sizeWritten = read(socket, buffer.data(), BUFFER_SIZE);
+        if (sizeWritten < 0 && errno != EAGAIN) {
+            if (errno != EINTR)
+                std::cout << "Couldn't read (5) " << strerror(errno) << ":" << errno << std::endl;
+            close(socket);
+            return 5;
+        }
+
+        if (sizeWritten == 0)
+            break;
+
+        if (sizeWritten > 0) {
+            std::cout << std::string(buffer.data(), sizeWritten);
+            buffer.fill('\0');
+        }
+
+        usleep(100000);
+    }
+    close(socket);
+    return 0;
+}
+
+int request(std::string arg, int minArgs = 0, bool needRoll = false) {
     const auto SERVERSOCKET = socket(AF_UNIX, SOCK_STREAM, 0);
+
+    auto       t = timeval{.tv_sec = 0, .tv_usec = 100000};
+    setsockopt(SERVERSOCKET, SOL_SOCKET, SO_RCVTIMEO, &t, sizeof(struct timeval));
 
     const auto ARGS = std::count(arg.begin(), arg.end(), ' ');
 
     if (ARGS < minArgs) {
-        std::cout << "Not enough arguments, expected at least " << minArgs;
+        log(std::format("Not enough arguments in '{}', expected at least {}", arg, minArgs));
         return -1;
     }
 
     if (SERVERSOCKET < 0) {
-        std::cout << "Couldn't open a socket (1)";
+        log("Couldn't open a socket (1)");
         return 1;
     }
 
     if (instanceSignature.empty()) {
-        std::cout << "HYPRLAND_INSTANCE_SIGNATURE was not set! (Is Hyprland running?)";
+        log("HYPRLAND_INSTANCE_SIGNATURE was not set! (Is Hyprland running?)");
         return 2;
     }
 
@@ -120,16 +171,19 @@ int request(std::string arg, int minArgs = 0) {
     strncpy(serverAddress.sun_path, socketPath.c_str(), sizeof(serverAddress.sun_path) - 1);
 
     if (connect(SERVERSOCKET, (sockaddr*)&serverAddress, SUN_LEN(&serverAddress)) < 0) {
-        std::cout << "Couldn't connect to " << socketPath << ". (3)";
+        log("Couldn't connect to " + socketPath + ". (3)");
         return 3;
     }
 
     auto sizeWritten = write(SERVERSOCKET, arg.c_str(), arg.length());
 
     if (sizeWritten < 0) {
-        std::cout << "Couldn't write (4)";
+        log("Couldn't write (4)");
         return 4;
     }
+
+    if (needRoll)
+        return rollingRead(SERVERSOCKET);
 
     std::string reply        = "";
     char        buffer[8192] = {0};
@@ -137,7 +191,7 @@ int request(std::string arg, int minArgs = 0) {
     sizeWritten = read(SERVERSOCKET, buffer, 8192);
 
     if (sizeWritten < 0) {
-        std::cout << "Couldn't read (5)";
+        log("Couldn't read (5)");
         return 5;
     }
 
@@ -146,7 +200,7 @@ int request(std::string arg, int minArgs = 0) {
     while (sizeWritten == 8192) {
         sizeWritten = read(SERVERSOCKET, buffer, 8192);
         if (sizeWritten < 0) {
-            std::cout << "Couldn't read (5)";
+            log("Couldn't read (5)");
             return 5;
         }
         reply += std::string(buffer, sizeWritten);
@@ -154,7 +208,7 @@ int request(std::string arg, int minArgs = 0) {
 
     close(SERVERSOCKET);
 
-    std::cout << reply;
+    log(reply);
 
     return 0;
 }
@@ -163,12 +217,12 @@ int requestHyprpaper(std::string arg) {
     const auto SERVERSOCKET = socket(AF_UNIX, SOCK_STREAM, 0);
 
     if (SERVERSOCKET < 0) {
-        std::cout << "Couldn't open a socket (1)";
+        log("Couldn't open a socket (1)");
         return 1;
     }
 
     if (instanceSignature.empty()) {
-        std::cout << "HYPRLAND_INSTANCE_SIGNATURE was not set! (Is Hyprland running?)";
+        log("HYPRLAND_INSTANCE_SIGNATURE was not set! (Is Hyprland running?)");
         return 2;
     }
 
@@ -182,7 +236,7 @@ int requestHyprpaper(std::string arg) {
     strncpy(serverAddress.sun_path, socketPath.c_str(), sizeof(serverAddress.sun_path) - 1);
 
     if (connect(SERVERSOCKET, (sockaddr*)&serverAddress, SUN_LEN(&serverAddress)) < 0) {
-        std::cout << "Couldn't connect to " << socketPath << ". (3)";
+        log("Couldn't connect to " + socketPath + ". (3)");
         return 3;
     }
 
@@ -192,7 +246,7 @@ int requestHyprpaper(std::string arg) {
     auto sizeWritten = write(SERVERSOCKET, arg.c_str(), arg.length());
 
     if (sizeWritten < 0) {
-        std::cout << "Couldn't write (4)";
+        log("Couldn't write (4)");
         return 4;
     }
 
@@ -201,13 +255,13 @@ int requestHyprpaper(std::string arg) {
     sizeWritten = read(SERVERSOCKET, buffer, 8192);
 
     if (sizeWritten < 0) {
-        std::cout << "Couldn't read (5)";
+        log("Couldn't read (5)");
         return 5;
     }
 
     close(SERVERSOCKET);
 
-    std::cout << std::string(buffer);
+    log(std::string(buffer));
 
     return 0;
 }
@@ -250,7 +304,7 @@ void instancesRequest(bool json) {
         result += "\n]";
     }
 
-    std::cout << result << "\n";
+    log(result + "\n");
 }
 
 std::deque<std::string> splitArgs(int argc, char** argv) {
@@ -260,12 +314,6 @@ std::deque<std::string> splitArgs(int argc, char** argv) {
         result.push_back(std::string(argv[i]));
 
     return result;
-}
-
-bool isNumber(const std::string& str, bool allowfloat) {
-    if (str.empty())
-        return false;
-    return std::ranges::all_of(str.begin(), str.end(), [&](char c) { return isdigit(c) != 0 || c == '-' || (allowfloat && c == '.'); });
 }
 
 int main(int argc, char** argv) {
@@ -280,6 +328,7 @@ int main(int argc, char** argv) {
     std::string fullArgs         = "";
     const auto  ARGS             = splitArgs(argc, argv);
     bool        json             = false;
+    bool        needRoll         = false;
     std::string overrideInstance = "";
 
     for (std::size_t i = 0; i < ARGS.size(); ++i) {
@@ -299,6 +348,9 @@ int main(int argc, char** argv) {
                 fullArgs += "a";
             } else if ((ARGS[i] == "-c" || ARGS[i] == "--config") && !fullArgs.contains("c")) {
                 fullArgs += "c";
+            } else if ((ARGS[i] == "-f" || ARGS[i] == "--follow") && !fullArgs.contains("f")) {
+                fullArgs += "f";
+                needRoll = true;
             } else if (ARGS[i] == "--batch") {
                 fullRequest = "--batch ";
             } else if (ARGS[i] == "--instance" || ARGS[i] == "-i") {
@@ -310,6 +362,8 @@ int main(int argc, char** argv) {
                 }
 
                 overrideInstance = ARGS[i];
+            } else if (ARGS[i] == "-q" || ARGS[i] == "--quiet") {
+                quiet = true;
             } else if (ARGS[i] == "--help") {
                 const std::string& cmd = ARGS[0];
 
@@ -356,11 +410,16 @@ int main(int argc, char** argv) {
         return 0;
     }
 
+    if (needRoll && !fullRequest.contains("/rollinglog")) {
+        log("only 'rollinglog' command supports '--follow' option");
+        return 1;
+    }
+
     if (overrideInstance.contains("_"))
         instanceSignature = overrideInstance;
     else if (!overrideInstance.empty()) {
         if (!isNumber(overrideInstance, false)) {
-            std::cout << "instance invalid\n";
+            log("instance invalid\n");
             return 1;
         }
 
@@ -369,7 +428,7 @@ int main(int argc, char** argv) {
         const auto INSTANCES = instances();
 
         if (INSTANCENO < 0 || static_cast<std::size_t>(INSTANCENO) >= INSTANCES.size()) {
-            std::cout << "no such instance\n";
+            log("no such instance\n");
             return 1;
         }
 
@@ -378,7 +437,7 @@ int main(int argc, char** argv) {
         const auto ISIG = getenv("HYPRLAND_INSTANCE_SIGNATURE");
 
         if (!ISIG) {
-            std::cout << "HYPRLAND_INSTANCE_SIGNATURE not set! (is hyprland running?)\n";
+            log("HYPRLAND_INSTANCE_SIGNATURE not set! (is hyprland running?)\n");
             return 1;
         }
 
@@ -415,10 +474,12 @@ int main(int argc, char** argv) {
         exitStatus = request(fullRequest, 1);
     else if (fullRequest.contains("/--help"))
         std::cout << USAGE << std::endl;
+    else if (fullRequest.contains("/rollinglog") && needRoll)
+        exitStatus = request(fullRequest, 0, true);
     else {
         exitStatus = request(fullRequest);
     }
 
-    std::cout << std::endl;
+    std::cout << std::flush;
     return exitStatus;
 }

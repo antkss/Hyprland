@@ -6,12 +6,15 @@
 #include "KeybindManager.hpp"
 #include "TokenManager.hpp"
 #include "debug/Log.hpp"
-#include "helpers/VarList.hpp"
+#include "helpers/varlist/VarList.hpp"
 
 #include <optional>
 #include <iterator>
 #include <string>
 #include <string_view>
+
+#include <hyprutils/string/String.hpp>
+using namespace Hyprutils::String;
 
 #include <sys/ioctl.h>
 #include <fcntl.h>
@@ -111,6 +114,7 @@ CKeybindManager::CKeybindManager() {
     m_mDispatchers["movewindoworgroup"]              = moveWindowOrGroup;
     m_mDispatchers["setignoregrouplock"]             = setIgnoreGroupLock;
     m_mDispatchers["denywindowfromgroup"]            = denyWindowFromGroup;
+    m_mDispatchers["event"]                          = event;
     m_mDispatchers["global"]                         = global;
 
     m_tScrollTimer.reset();
@@ -836,7 +840,7 @@ bool CKeybindManager::handleInternalKeybinds(xkb_keysym_t keysym) {
 
 void CKeybindManager::spawn(std::string args) {
 
-    args = removeBeginEndSpacesTabs(args);
+    args = trim(args);
 
     std::string RULES = "";
 
@@ -2676,4 +2680,8 @@ void CKeybindManager::moveGroupWindow(std::string args) {
         PLASTWINDOW->switchWithWindowInGroup(BACK ? PLASTWINDOW->getGroupPrevious() : PLASTWINDOW->m_sGroupData.pNextWindow.lock());
 
     PLASTWINDOW->updateWindowDecos();
+}
+
+void CKeybindManager::event(std::string args) {
+    g_pEventManager->postEvent(SHyprIPCEvent{"custom", args});
 }
