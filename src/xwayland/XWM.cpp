@@ -1,4 +1,4 @@
-#include "helpers/Vector2D.hpp"
+#include "helpers/math/Math.hpp"
 #ifndef NO_XWAYLAND
 
 #include "XWayland.hpp"
@@ -153,7 +153,7 @@ static bool lookupParentExists(SP<CXWaylandSurface> XSURF, SP<CXWaylandSurface> 
 }
 
 void CXWM::readProp(SP<CXWaylandSurface> XSURF, uint32_t atom, xcb_get_property_reply_t* reply) {
-    std::string propName = "?";
+    std::string propName = std::format("{}?", atom);
     for (auto& ha : HYPRATOMS) {
         if (ha.second != atom)
             continue;
@@ -172,8 +172,10 @@ void CXWM::readProp(SP<CXWaylandSurface> XSURF, uint32_t atom, xcb_get_property_
             XSURF->state.appid.pop_back();
         XSURF->events.metadataChanged.emit();
     } else if (atom == XCB_ATOM_WM_NAME || atom == HYPRATOMS["_NET_WM_NAME"]) {
-        size_t len         = xcb_get_property_value_length(reply);
-        char*  string      = (char*)xcb_get_property_value(reply);
+        size_t len    = xcb_get_property_value_length(reply);
+        char*  string = (char*)xcb_get_property_value(reply);
+        if (reply->type != HYPRATOMS["UTF8_STRING"] && reply->type != HYPRATOMS["TEXT"] && reply->type != XCB_ATOM_STRING)
+            return;
         XSURF->state.title = std::string{string, len};
         XSURF->events.metadataChanged.emit();
     } else if (atom == HYPRATOMS["_NET_WM_WINDOW_TYPE"]) {
@@ -394,11 +396,16 @@ void CXWM::focusWindow(SP<CXWaylandSurface> surf) {
     if (surf == focusedSurface)
         return;
 
-    auto oldSurf   = focusedSurface.lock();
     focusedSurface = surf;
 
-    if (oldSurf)
-        sendState(oldSurf);
+    // send state to all surfaces, sometimes we might lose some
+    // that could still stick with the focused atom
+    for (auto& s : mappedSurfaces) {
+        if (!s)
+            continue;
+
+        sendState(s.lock());
+    }
 
     if (!surf) {
         xcb_set_input_focus_checked(connection, XCB_INPUT_FOCUS_POINTER_ROOT, XCB_NONE, XCB_CURRENT_TIME);
@@ -515,7 +522,7 @@ bool CXWM::handleSelectionPropertyNotify(xcb_property_notify_event_t* e) {
 
     // Debug::log(ERR, "[xwm] FIXME: CXWM::handleSelectionPropertyNotify stub");
 
-    return true;
+    return false;
 }
 
 void CXWM::handleSelectionRequest(xcb_selection_request_event_t* e) {
@@ -868,13 +875,17 @@ void CXWM::createWMWindow() {
     xcb_set_selection_owner(connection, wmWindow, HYPRATOMS["_NET_WM_CM_S0"], XCB_CURRENT_TIME);
 }
 
-void CXWM::activateSurface(SP<CXWaylandSurface> surf) {
-    if (surf == focusedSurface || (surf && surf->overrideRedirect))
+void CXWM::activateSurface(SP<CXWaylandSurface> surf, bool activate) {
+    if ((surf == focusedSurface && activate) || (surf && surf->overrideRedirect))
         return;
 
-    setActiveWindow(surf ? surf->xID : (uint32_t)XCB_WINDOW_NONE);
-
-    focusWindow(surf);
+    if (!activate || !surf) {
+        setActiveWindow((uint32_t)XCB_WINDOW_NONE);
+        focusWindow(nullptr);
+    } else {
+        setActiveWindow(surf ? surf->xID : (uint32_t)XCB_WINDOW_NONE);
+        focusWindow(surf);
+    }
 
     xcb_flush(connection);
 }
@@ -1025,16 +1036,16 @@ void CXWM::initSelection() {
 }
 
 void CXWM::setClipboardToWayland(SXSelection& sel) {
-    sel.dataSource = makeShared<CXDataSource>(sel);
-    if (sel.dataSource->mimes().empty()) {
+    auto source = makeShared<CXDataSource>(sel);
+    if (source->mimes().empty()) {
         Debug::log(ERR, "[xwm] can't set clipboard: no MIMEs");
-        sel.dataSource.reset();
+        return;
     }
 
-    if (sel.dataSource) {
-        Debug::log(LOG, "[xwm] X clipboard at {:x} takes clipboard", (uintptr_t)sel.dataSource.get());
-        g_pSeatManager->setCurrentSelection(sel.dataSource);
-    }
+    sel.dataSource = source;
+
+    Debug::log(LOG, "[xwm] X clipboard at {:x} takes clipboard", (uintptr_t)sel.dataSource.get());
+    g_pSeatManager->setCurrentSelection(sel.dataSource);
 }
 
 void CXWM::getTransferData(SXSelection& sel) {

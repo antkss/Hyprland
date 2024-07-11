@@ -4,6 +4,7 @@
 #include "../protocols/PointerGestures.hpp"
 #include "../protocols/FractionalScale.hpp"
 #include "../protocols/core/Compositor.hpp"
+#include "eventLoop/EventLoopManager.hpp"
 #include "SeatManager.hpp"
 #include <wlr/interfaces/wlr_output.h>
 #include <wlr/render/interface.h>
@@ -139,8 +140,8 @@ CPointerManager::CPointerManager() {
 
         onMonitorLayoutChange();
 
-        PMONITOR->events.modeChanged.registerStaticListener([this](void* owner, std::any data) { onMonitorLayoutChange(); }, nullptr);
-        PMONITOR->events.disconnect.registerStaticListener([this](void* owner, std::any data) { onMonitorLayoutChange(); }, nullptr);
+        PMONITOR->events.modeChanged.registerStaticListener([this](void* owner, std::any data) { g_pEventLoopManager->doLater([this]() { onMonitorLayoutChange(); }); }, nullptr);
+        PMONITOR->events.disconnect.registerStaticListener([this](void* owner, std::any data) { g_pEventLoopManager->doLater([this]() { onMonitorLayoutChange(); }); }, nullptr);
         PMONITOR->events.destroy.registerStaticListener(
             [this](void* owner, std::any data) {
                 if (g_pCompositor && !g_pCompositor->m_bIsShuttingDown)
@@ -164,12 +165,30 @@ void CPointerManager::unlockSoftwareAll() {
     updateCursorBackend();
 }
 
+void CPointerManager::lockSoftwareForMonitor(CMonitor* Monitor) {
+    for (auto& m : g_pCompositor->m_vMonitors) {
+        if (m->ID == Monitor->ID) {
+            lockSoftwareForMonitor(m);
+            return;
+        }
+    }
+}
+
 void CPointerManager::lockSoftwareForMonitor(SP<CMonitor> mon) {
     auto state = stateFor(mon);
     state->softwareLocks++;
 
     if (state->softwareLocks == 1)
         updateCursorBackend();
+}
+
+void CPointerManager::unlockSoftwareForMonitor(CMonitor* Monitor) {
+    for (auto& m : g_pCompositor->m_vMonitors) {
+        if (m->ID == Monitor->ID) {
+            unlockSoftwareForMonitor(m);
+            return;
+        }
+    }
 }
 
 void CPointerManager::unlockSoftwareForMonitor(SP<CMonitor> mon) {
@@ -558,6 +577,8 @@ void CPointerManager::renderSoftwareCursorsFor(SP<CMonitor> pMonitor, timespec* 
         return;
 
     box.scale(pMonitor->scale);
+    box.x = std::round(box.x);
+    box.y = std::round(box.y);
 
     g_pHyprOpenGL->renderTextureWithDamage(texture, &box, &damage, 1.F);
 
@@ -577,7 +598,7 @@ Vector2D CPointerManager::transformedHotspot(SP<CMonitor> pMonitor) {
         return {}; // doesn't matter, we have no hw cursor, and this is only for hw cursors
 
     return CBox{currentCursorImage.hotspot * pMonitor->scale, {0, 0}}
-        .transform(wlr_output_transform_invert(pMonitor->transform), pMonitor->output->cursor_swapchain->width, pMonitor->output->cursor_swapchain->height)
+        .transform(wlTransformToHyprutils(wlr_output_transform_invert(pMonitor->transform)), pMonitor->output->cursor_swapchain->width, pMonitor->output->cursor_swapchain->height)
         .pos();
 }
 
@@ -592,7 +613,7 @@ CBox CPointerManager::getCursorBoxGlobal() {
 Vector2D CPointerManager::closestValid(const Vector2D& pos) {
     static auto PADDING = CConfigValue<Hyprlang::INT>("cursor:hotspot_padding");
 
-    auto        CURSOR_PADDING = std::clamp((int)*PADDING, 1, 100); // 1px
+    auto        CURSOR_PADDING = std::clamp((int)*PADDING, 0, 100);
     CBox        hotBox         = {{pos.x - CURSOR_PADDING, pos.y - CURSOR_PADDING}, {2 * CURSOR_PADDING, 2 * CURSOR_PADDING}};
 
     //

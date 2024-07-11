@@ -25,7 +25,7 @@ int wlTick(SP<CEventLoopTimer> self, void* data) {
 }
 
 CAnimationManager::CAnimationManager() {
-    std::vector<Vector2D> points = {Vector2D(0, 0.75f), Vector2D(0.15f, 1.f)};
+    std::vector<Vector2D> points = {Vector2D(0.0, 0.75), Vector2D(0.15, 1.0)};
     m_mBezierCurves["default"].setup(&points);
 
     m_pAnimationTimer = SP<CEventLoopTimer>(new CEventLoopTimer(std::chrono::microseconds(500), wlTick, nullptr));
@@ -36,7 +36,7 @@ void CAnimationManager::removeAllBeziers() {
     m_mBezierCurves.clear();
 
     // add the default one
-    std::vector<Vector2D> points = {Vector2D(0, 0.75f), Vector2D(0.15f, 1.f)};
+    std::vector<Vector2D> points = {Vector2D(0.0, 0.75), Vector2D(0.15, 1.0)};
     m_mBezierCurves["default"].setup(&points);
 }
 
@@ -102,7 +102,7 @@ void CAnimationManager::tick() {
             PMONITOR = g_pCompositor->getMonitorFromID(PWINDOW->m_iMonitorID);
             if (!PMONITOR)
                 continue;
-            animationsDisabled = animationsDisabled || PWINDOW->m_sAdditionalConfigData.forceNoAnims;
+            animationsDisabled = PWINDOW->m_sWindowData.noAnim.valueOr(animationsDisabled);
         } else if (PWORKSPACE) {
             PMONITOR = g_pCompositor->getMonitorFromID(PWORKSPACE->m_iMonitorID);
             if (!PMONITOR)
@@ -336,9 +336,9 @@ void CAnimationManager::animationSlide(PHLWINDOW pWindow, std::string force, boo
         if (force == "bottom")
             posOffset = Vector2D(GOALPOS.x, PMONITOR->vecPosition.y + PMONITOR->vecSize.y);
         else if (force == "left")
-            posOffset = GOALPOS - Vector2D(GOALSIZE.x, 0);
+            posOffset = GOALPOS - Vector2D(GOALSIZE.x, 0.0);
         else if (force == "right")
-            posOffset = GOALPOS + Vector2D(GOALSIZE.x, 0);
+            posOffset = GOALPOS + Vector2D(GOALSIZE.x, 0.0);
         else
             posOffset = Vector2D(GOALPOS.x, PMONITOR->vecPosition.y - GOALSIZE.y);
 
@@ -360,16 +360,16 @@ void CAnimationManager::animationSlide(PHLWINDOW pWindow, std::string force, boo
 
     if (DISPLAYBOTTOM && DISPLAYTOP) {
         if (DISPLAYLEFT && DISPLAYRIGHT) {
-            posOffset = GOALPOS + Vector2D(0, GOALSIZE.y);
+            posOffset = GOALPOS + Vector2D(0.0, GOALSIZE.y);
         } else if (DISPLAYLEFT) {
-            posOffset = GOALPOS - Vector2D(GOALSIZE.x, 0);
+            posOffset = GOALPOS - Vector2D(GOALSIZE.x, 0.0);
         } else {
-            posOffset = GOALPOS + Vector2D(GOALSIZE.x, 0);
+            posOffset = GOALPOS + Vector2D(GOALSIZE.x, 0.0);
         }
     } else if (DISPLAYTOP) {
-        posOffset = GOALPOS - Vector2D(0, GOALSIZE.y);
+        posOffset = GOALPOS - Vector2D(0.0, GOALSIZE.y);
     } else if (DISPLAYBOTTOM) {
-        posOffset = GOALPOS + Vector2D(0, GOALSIZE.y);
+        posOffset = GOALPOS + Vector2D(0.0, GOALSIZE.y);
     } else {
         if (MIDPOINT.y > PMONITOR->vecPosition.y + PMONITOR->vecSize.y / 2.f)
             posOffset = Vector2D(GOALPOS.x, PMONITOR->vecPosition.y + PMONITOR->vecSize.y);
@@ -407,18 +407,19 @@ void CAnimationManager::onWindowPostCreateClose(PHLWINDOW pWindow, bool close) {
     if (!pWindow->m_vRealPosition.m_pConfig->pValues->internalEnabled)
         return;
 
-    if (pWindow->m_sAdditionalConfigData.animationStyle != "") {
+    if (pWindow->m_sWindowData.animationStyle.hasValue()) {
+        const auto STYLE = pWindow->m_sWindowData.animationStyle.value();
         // the window has config'd special anim
-        if (pWindow->m_sAdditionalConfigData.animationStyle.starts_with("slide")) {
-            CVarList animList2(pWindow->m_sAdditionalConfigData.animationStyle, 0, 's');
+        if (STYLE.starts_with("slide")) {
+            CVarList animList2(STYLE, 0, 's');
             animationSlide(pWindow, animList2[1], close);
         } else {
             // anim popin, fallback
 
             float minPerc = 0.f;
-            if (pWindow->m_sAdditionalConfigData.animationStyle.find("%") != std::string::npos) {
+            if (STYLE.find("%") != std::string::npos) {
                 try {
-                    auto percstr = pWindow->m_sAdditionalConfigData.animationStyle.substr(pWindow->m_sAdditionalConfigData.animationStyle.find_last_of(' '));
+                    auto percstr = STYLE.substr(STYLE.find_last_of(' '));
                     minPerc      = std::stoi(percstr.substr(0, percstr.length() - 1));
                 } catch (std::exception& e) {
                     ; // oops
@@ -552,7 +553,7 @@ void CAnimationManager::scheduleTick() {
 
     float       refreshDelayMs = std::floor(1000.f / PMOSTHZ->refreshRate);
 
-    const float SINCEPRES = std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::system_clock::now() - PMOSTHZ->lastPresentationTimer.chrono()).count() / 1000.f;
+    const float SINCEPRES = std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::steady_clock::now() - PMOSTHZ->lastPresentationTimer.chrono()).count() / 1000.f;
 
     const auto  TOPRES = std::clamp(refreshDelayMs - SINCEPRES, 1.1f, 1000.f); // we can't send 0, that will disarm it
 

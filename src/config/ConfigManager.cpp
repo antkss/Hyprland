@@ -525,10 +525,11 @@ CConfigManager::CConfigManager() {
     m_pConfig->addConfigValue("cursor:no_hardware_cursors", Hyprlang::INT{0});
     m_pConfig->addConfigValue("cursor:no_break_fs_vrr", Hyprlang::INT{0});
     m_pConfig->addConfigValue("cursor:min_refresh_rate", Hyprlang::INT{24});
-    m_pConfig->addConfigValue("cursor:hotspot_padding", Hyprlang::INT{1});
+    m_pConfig->addConfigValue("cursor:hotspot_padding", Hyprlang::INT{0});
     m_pConfig->addConfigValue("cursor:inactive_timeout", Hyprlang::INT{0});
     m_pConfig->addConfigValue("cursor:no_warps", Hyprlang::INT{0});
     m_pConfig->addConfigValue("cursor:persistent_warps", Hyprlang::INT{0});
+    m_pConfig->addConfigValue("cursor:warp_on_change_workspace", Hyprlang::INT{0});
     m_pConfig->addConfigValue("cursor:default_monitor", {STRVAL_EMPTY});
     m_pConfig->addConfigValue("cursor:zoom_factor", {1.f});
     m_pConfig->addConfigValue("cursor:zoom_rigid", Hyprlang::INT{0});
@@ -632,7 +633,12 @@ std::string CConfigManager::getConfigDir() {
     if (xdgConfigHome && std::filesystem::path(xdgConfigHome).is_absolute())
         return xdgConfigHome;
 
-    return getenv("HOME") + std::string("/.config");
+    static const char* home = getenv("HOME");
+
+    if (!home)
+        throw std::runtime_error("Neither HOME nor XDG_CONFIG_HOME is set in the environment. Cannot determine config directory.");
+
+    return home + std::string("/.config");
 }
 
 std::string CConfigManager::getMainConfigPath() {
@@ -838,7 +844,7 @@ void CConfigManager::postConfigReload(const Hyprlang::CParseResult& result) {
         if (w->inert())
             continue;
         g_pCompositor->updateWorkspaceWindows(w->m_iID);
-        g_pCompositor->updateWorkspaceSpecialRenderData(w->m_iID);
+        g_pCompositor->updateWorkspaceWindowData(w->m_iID);
     }
 
     // Update window border colors
@@ -981,7 +987,8 @@ float CConfigManager::getDeviceFloat(const std::string& dev, const std::string& 
 }
 
 Vector2D CConfigManager::getDeviceVec(const std::string& dev, const std::string& v, const std::string& fallback) {
-    return std::any_cast<Hyprlang::VEC2>(getConfigValueSafeDevice(dev, v, fallback)->getValue());
+    auto vec = std::any_cast<Hyprlang::VEC2>(getConfigValueSafeDevice(dev, v, fallback)->getValue());
+    return {vec.x, vec.y};
 }
 
 std::string CConfigManager::getDeviceString(const std::string& dev, const std::string& v, const std::string& fallback) {
@@ -1051,14 +1058,14 @@ SWorkspaceRule CConfigManager::mergeWorkspaceRules(const SWorkspaceRule& rule1, 
         mergedRule.gapsOut = rule2.gapsOut;
     if (rule2.borderSize.has_value())
         mergedRule.borderSize = rule2.borderSize;
-    if (rule2.border.has_value())
-        mergedRule.border = rule2.border;
-    if (rule2.rounding.has_value())
-        mergedRule.rounding = rule2.rounding;
+    if (rule2.noBorder.has_value())
+        mergedRule.noBorder = rule2.noBorder;
+    if (rule2.noRounding.has_value())
+        mergedRule.noRounding = rule2.noRounding;
     if (rule2.decorate.has_value())
         mergedRule.decorate = rule2.decorate;
-    if (rule2.shadow.has_value())
-        mergedRule.shadow = rule2.shadow;
+    if (rule2.noShadow.has_value())
+        mergedRule.noShadow = rule2.noShadow;
     if (rule2.onCreatedEmptyRunCmd.has_value())
         mergedRule.onCreatedEmptyRunCmd = rule2.onCreatedEmptyRunCmd;
     if (rule2.defaultName.has_value())
@@ -1280,10 +1287,10 @@ void CConfigManager::dispatchExecOnce() {
     if (g_pCompositor->m_sWLRSession)
         handleRawExec("",
 #ifdef USES_SYSTEMD
-                      "systemctl --user import-environment DISPLAY WAYLAND_DISPLAY HYPRLAND_INSTANCE_SIGNATURE XDG_CURRENT_DESKTOP QT_QPA_PLATFORMTHEME && hash "
+                      "systemctl --user import-environment DISPLAY WAYLAND_DISPLAY HYPRLAND_INSTANCE_SIGNATURE XDG_CURRENT_DESKTOP QT_QPA_PLATFORMTHEME PATH XDG_DATA_DIRS && hash "
                       "dbus-update-activation-environment 2>/dev/null && "
 #endif
-                      "dbus-update-activation-environment --systemd WAYLAND_DISPLAY XDG_CURRENT_DESKTOP HYPRLAND_INSTANCE_SIGNATURE QT_QPA_PLATFORMTHEME");
+                      "dbus-update-activation-environment --systemd WAYLAND_DISPLAY XDG_CURRENT_DESKTOP HYPRLAND_INSTANCE_SIGNATURE QT_QPA_PLATFORMTHEME PATH XDG_DATA_DIRS");
 
     firstExecDispatched = true;
 
@@ -1813,14 +1820,13 @@ std::optional<std::string> CConfigManager::handleMonitor(const std::string& comm
             newrule.vrr = std::stoi(ARGS[argno + 1]);
             argno++;
         } else if (ARGS[argno] == "workspace") {
-            std::string    name = "";
-            int            wsId = getWorkspaceIDFromString(ARGS[argno + 1], name);
+            const auto& [id, name] = getWorkspaceIDNameFromString(ARGS[argno + 1]);
 
             SWorkspaceRule wsRule;
             wsRule.monitor         = newrule.name;
             wsRule.workspaceString = ARGS[argno + 1];
+            wsRule.workspaceId     = id;
             wsRule.workspaceName   = name;
-            wsRule.workspaceId     = wsId;
 
             m_dWorkspaceRules.emplace_back(wsRule);
             argno++;
@@ -2080,16 +2086,17 @@ std::optional<std::string> CConfigManager::handleUnbind(const std::string& comma
 
 bool windowRuleValid(const std::string& RULE) {
     static const auto rules = std::unordered_set<std::string>{
-        "dimaround",       "fakefullscreen", "float",           "focusonactivate", "forceinput", "forcergbx",   "fullscreen", "immediate",
-        "keepaspectratio", "maximize",       "nearestneighbor", "noanim",          "noblur",     "noborder",    "nodim",      "nofocus",
-        "noinitialfocus",  "nomaxsize",      "noshadow",        "opaque",          "pin",        "stayfocused", "tile",       "windowdance",
+        "fakefullscreen", "float", "fullscreen", "maximize", "noinitialfocus", "pin", "stayfocused", "tile",
     };
     static const auto rulesPrefix = std::vector<std::string>{
         "animation", "bordercolor", "bordersize", "center",   "group", "idleinhibit",   "maxsize", "minsize",   "monitor", "move",
         "opacity",   "plugin:",     "pseudo",     "rounding", "size",  "suppressevent", "tag",     "workspace", "xray",
     };
 
-    return rules.contains(RULE) || std::any_of(rulesPrefix.begin(), rulesPrefix.end(), [&RULE](auto prefix) { return RULE.starts_with(prefix); });
+    const auto VALS = CVarList(RULE, 2, ' ');
+    return rules.contains(RULE) || std::any_of(rulesPrefix.begin(), rulesPrefix.end(), [&RULE](auto prefix) { return RULE.starts_with(prefix); }) ||
+        (g_pConfigManager->mbWindowProperties.find(VALS[0]) != g_pConfigManager->mbWindowProperties.end()) ||
+        (g_pConfigManager->miWindowProperties.find(VALS[0]) != g_pConfigManager->miWindowProperties.end());
 }
 
 bool layerRuleValid(const std::string& RULE) {
@@ -2368,11 +2375,11 @@ std::optional<std::string> CConfigManager::handleBlurLS(const std::string& comma
 
 std::optional<std::string> CConfigManager::handleWorkspaceRules(const std::string& command, const std::string& value) {
     // This can either be the monitor or the workspace identifier
-    const auto     FIRST_DELIM = value.find_first_of(',');
+    const auto FIRST_DELIM = value.find_first_of(',');
 
-    std::string    name        = "";
-    auto           first_ident = trim(value.substr(0, FIRST_DELIM));
-    int            id          = getWorkspaceIDFromString(first_ident, name);
+    auto       first_ident = trim(value.substr(0, FIRST_DELIM));
+
+    const auto& [id, name] = getWorkspaceIDNameFromString(first_ident);
 
     auto           rules = value.substr(FIRST_DELIM + 1);
     SWorkspaceRule wsRule;
@@ -2415,11 +2422,11 @@ std::optional<std::string> CConfigManager::handleWorkspaceRules(const std::strin
                 wsRule.borderSize = std::stoi(rule.substr(delim + 11));
             } catch (...) { return "Error parsing workspace rule bordersize: {}", rule.substr(delim + 11); }
         else if ((delim = rule.find("border:")) != std::string::npos)
-            wsRule.border = configStringToInt(rule.substr(delim + 7));
+            wsRule.noBorder = !configStringToInt(rule.substr(delim + 7));
         else if ((delim = rule.find("shadow:")) != std::string::npos)
-            wsRule.shadow = configStringToInt(rule.substr(delim + 7));
+            wsRule.noShadow = !configStringToInt(rule.substr(delim + 7));
         else if ((delim = rule.find("rounding:")) != std::string::npos)
-            wsRule.rounding = configStringToInt(rule.substr(delim + 9));
+            wsRule.noRounding = !configStringToInt(rule.substr(delim + 9));
         else if ((delim = rule.find("decorate:")) != std::string::npos)
             wsRule.decorate = configStringToInt(rule.substr(delim + 9));
         else if ((delim = rule.find("monitor:")) != std::string::npos)
